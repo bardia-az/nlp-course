@@ -1,0 +1,4 @@
+This homework was pretty simple. I just read the dafault solution's code and noticed its issue by watching its performance on the test and dev dataset.
+My groupmate and I both came up with the idea of setting the probability of the unknown words to 0, which improved the accuracy considerably.
+
+Bardia Azizian

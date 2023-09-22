@@ -1,0 +1,8 @@
+INFO:root:path: None
+INFO:root:files: {'dev.out'}
+INFO:root:testing filename: dev.out
+INFO:root:filename=dev.out
+INFO:root:path_key=dev.out
+INFO:root:Checking dev.out
+INFO:root:ref, output [("b'choose spain'", "b'choose spain'"), ("b'this is a test'", "b'this is a test'"), ("b'who represents'", "b'who represents'"), ("b'experts exchange'", "b'experts exchange'"), ("b'speed of art'", "b'speed of art'"), ("b'un climate change body'", "b'unclimatechangebody'"), ("b'we are the people'", "b'we are the people'"), ("b'mention your faves'", "b'mentionyourfaves'"), ("b'now playing'", "b'now playing'"), ("b'the walking dead'", "b'the walking dead'"), ("b'follow me'", "b'follow me'"), ("b'we are the people'", "b'we are the people'"), ("b'mention your faves'", "b'mentionyourfaves'"), ("b'check domain'", "b'check domain'"), ("b'big rock'", "b'big rock'"), ("b'name cheap'", "b'name cheap'"), ("b'apple domains'", "b'apple domains'"), ("b'honesty hour'", "b'honesty hour'"), ("b'being human'", "b'being human'"), ("b'follow back'", "b'follow back'"), ("b'social media'", "b'social media'"), ("b'30 seconds to earth'", "b'30secondstoearth'"), ("b'current rate sought to go down'", "b'current ratesoughttogodown'"), ("b'this is insane'", "b'this is insane'"), ("b'what is my name'", "b'what is my name'"), ("b'is it time'", "b'is it time'"), ("b'let us go'", "b'let us go'"), ("b'me too'", "b'me too'"), ("b'now thatcher is dead'", "b'nowthatcherisdead'"), ("b'advice for young journalists'", "b'advice for young journalists'")]
+INFO:root:score dev.out: 0.8152866242038218
