@@ -1,4 +1,5 @@
 This homework was pretty simple. I just read the dafault solution's code and noticed its issue by watching its performance on the test and dev dataset.
-My groupmate and I both came up with the idea of setting the probability of the unknown words to 0, which improved the accuracy considerably.
+My groupmate and I both came up with the idea of setting the probability of the unknown words to 0 first, which improved the accuracy on the dev dataset. But the output on the test dataset was not good enough.
+Then I decided to define a new missing function that assings a more reasonabe probability to the unknown words, which improved the output of the test dataset as well.
 
 Bardia Azizian

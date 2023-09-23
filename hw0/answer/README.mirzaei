@@ -1,2 +1,3 @@
 My groupmate had an idea of why the precision of the system is low. 
-We both decided to set the probability of the unknown words (the ones that are not available in count_1w.txt) to 0, which improved the F-score of the segmentation.
+We both decided to set the probability of the unknown words (the ones that are not available in count_1w.txt) to 0, which improved the F-score of the segmentation on the dev dataset.
+We further improved the "missingfn" to have a better segmentation on the test dataset as well.

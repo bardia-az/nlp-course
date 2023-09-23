@@ -74,7 +74,7 @@ if __name__ == '__main__':
 
     sys.setrecursionlimit(10**6)
 
-    Pw = Pdist(data=datafile(opts.counts1w), missingfn=(lambda k, N: 0))
+    Pw = Pdist(data=datafile(opts.counts1w), missingfn=(lambda k, N: pow(1./N, len(k))))
     segmenter = Segment(Pw)
     with open(opts.input) as f:
         for line in f:
