@@ -150,7 +150,6 @@ dmypy.json
 *.mtc0
 *.nav
 *.nlo
-*.out
 *.pdfsync
 *.ps
 *.snm
