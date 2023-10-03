@@ -24,7 +24,7 @@ def select_correction(typo, predict):
     w = 0.95
     score_tot = w * edit_score + (1-w) * LM_score
     best_ind = np.argmax(score_tot)
-    return predict[best_ind]['token_str']
+    return predict[best_ind]['token_str'].capitalize() if typo[0].isupper() else predict[best_ind]['token_str']
 
 def spellchk(fh):
     for (locations, sent) in get_typo_locations(fh):
