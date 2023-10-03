@@ -1,5 +1,6 @@
 from transformers import pipeline
 import logging, os, csv
+import numpy as np
 
 fill_mask = pipeline('fill-mask', model='distilbert-base-uncased')
 mask = fill_mask.tokenizer.mask_token
@@ -16,7 +17,9 @@ def get_typo_locations(fh):
 
 def select_correction(typo, predict):
     # return the most likely prediction for the mask token
-    return predict[0]['token_str']
+    dist_score = [len(set(typo.lower()).intersection(set(predict[i]['token_str'])))/len(typo) for i in range(len(predict))]
+    best_ind = np.argmax(dist_score)
+    return predict[best_ind]['token_str']
 
 def spellchk(fh):
     for (locations, sent) in get_typo_locations(fh):
@@ -36,7 +39,7 @@ if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument("-i", "--inputfile", 
                             dest="input", 
-                            default=os.path.join('data', 'input', 'dev.tsv'), 
+                            default=os.path.join('hw1', 'data', 'input', 'dev.tsv'), 
                             help="file to segment")
     argparser.add_argument("-l", "--logfile", 
                             dest="logfile", 
