@@ -18,8 +18,12 @@ def get_typo_locations(fh):
 
 def select_correction(typo, predict):
     # return the most likely prediction for the mask token
-    edit_dist = [Levenshtein.distance(typo.lower(), predict[i]['token_str']) for i in range(len(predict))]
-    best_ind = np.argmin(edit_dist)
+    LM_score = np.array([predict[i]['score'] for i in range(len(predict))])
+    edit_dist = np.array([Levenshtein.distance(typo.lower(), predict[i]['token_str']) for i in range(len(predict))])
+    edit_score = (edit_dist.max() - edit_dist) / edit_dist.max()
+    w = 0.95
+    score_tot = w * edit_score + (1-w) * LM_score
+    best_ind = np.argmax(score_tot)
     return predict[best_ind]['token_str']
 
 def spellchk(fh):
@@ -41,6 +45,7 @@ if __name__ == '__main__':
     argparser.add_argument("-i", "--inputfile", 
                             dest="input", 
                             default=os.path.join('data', 'input', 'dev.tsv'), 
+                            # default=os.path.join('hw1', 'data', 'input', 'dev.tsv'), 
                             help="file to segment")
     argparser.add_argument("-l", "--logfile", 
                             dest="logfile", 
