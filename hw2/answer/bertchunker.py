@@ -102,7 +102,7 @@ class TransformerModel(nn.Module):
             ),
             optim.SGD( 
                 list(self.classification_head.parameters() ) ,
-                lr= 0.1
+                lr= 1e-2
                       )
         ]
 
