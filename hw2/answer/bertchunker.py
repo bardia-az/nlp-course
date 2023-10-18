@@ -85,9 +85,13 @@ class TransformerModel(nn.Module):
         self.classification_head = nn.Linear(self.encoder_hidden_dim, tagset_size)
         self.optimizers =[ 
             optim.Adam(
-                list(self.encoder.parameters()) + list(self.classification_head.parameters() ),
+                list(self.encoder.parameters()),
                 lr=lr
             ),
+            optim.SGD( 
+                list(self.classification_head.parameters() ) ,
+                lr= 0.1
+                      )
         ]
 
     def forward(self, sentence_input):
