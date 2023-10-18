@@ -82,7 +82,19 @@ class TransformerModel(nn.Module):
     def init_model_from_scratch(self, basemodel, tagset_size, lr):
         self.encoder = AutoModel.from_pretrained(basemodel)
         self.encoder_hidden_dim = self.encoder.config.hidden_size
-        self.classification_head = nn.Linear(self.encoder_hidden_dim, tagset_size)
+        # self.classification_head = nn.Linear(self.encoder_hidden_dim, tagset_size)
+        self.classification_head = nn.Sequential(
+            nn.Dropout(.2),
+            nn.Linear( self.encoder_hidden_dim, 512 ),
+            nn.GELU(),
+            nn.Linear( 512, 512 ),
+            nn.GELU(),
+            nn.Linear( 512, tagset_size )
+
+
+        )
+        # TODO initialize self.crf_layer in here as well.
+        # TODO modify the optimizers in a way that each model part is optimized with a proper learning rate!
         self.optimizers =[ 
             optim.Adam(
                 list(self.encoder.parameters()),
@@ -311,7 +323,7 @@ if __name__ == '__main__':
     argparser.add_argument("-M", "--basemodel", dest="basemodel",
                             default='distilbert-base-uncased',
                             help="The base huggingface pretrained model to be used as the encoder.")
-    argparser.add_argument("-e", "--epochs", dest="epochs", type=int, default=5,
+    argparser.add_argument("-e", "--epochs", dest="epochs", type=int, default=10,
                             help="number of epochs [default: 5]")
     argparser.add_argument("-b", "--batchsize", dest="batchsize", type=int, default=16,
                             help="batch size [default: 16]")
