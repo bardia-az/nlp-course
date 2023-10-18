@@ -27,7 +27,7 @@ def read_conll(handle, input_idx=0, label_idx=2, aug_perc = .01):
     return conll_data
 
 def augment_sentence( sent, aug_perc ):
-    # print('augmenting')
+    # print('augmenting!')
     # print( sent )
     chance = torch.rand( len(sent) )
     selected_tokens = torch.where( chance <  aug_perc)[0]
@@ -142,6 +142,7 @@ class FinetuneTagger:
         self.tag_to_ix = {}  # replace output labels / tags with an index
         self.ix_to_tag = []  # during inference we produce tag indices so we have to map it back to a tag
         self.model = None # setup the model in self.decode() or self.train()
+
 
     def load_training_data(self, trainfile):
         
