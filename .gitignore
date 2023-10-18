@@ -4,6 +4,7 @@ kubeconfig
 *.tar.gz
 **/container/*
 .DS_Store
+*.pt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
