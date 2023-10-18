@@ -7,8 +7,10 @@ from transformers import AutoTokenizer, AutoModel
 import tqdm
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+aug_tokens = list(alphabet) + list(alphabet.lower())
 
-def read_conll(handle, input_idx=0, label_idx=2):
+def read_conll(handle, input_idx=0, label_idx=2, aug_perc = .01):
     conll_data = []
     contents = re.sub(r'\n\s*\n', r'\n\n', handle.read())
     contents = contents.rstrip()
@@ -24,6 +26,34 @@ def read_conll(handle, input_idx=0, label_idx=2):
             logging.info("CoNLL: {} ||| {}".format( " ".join(annotations[input_idx]), " ".join(annotations[label_idx])))
     return conll_data
 
+def augment_sentence( sent, aug_perc ):
+    # print('augmenting')
+    # print( sent )
+    chance = torch.rand( len(sent) )
+    selected_tokens = torch.where( chance <  aug_perc)[0]
+    sent = list( sent )
+    augmented = False
+    # print( selected_tokens )
+    for ind in selected_tokens:
+        token = sent[ind]
+        if len( token ) == 1 :
+            # print("insufficient len")
+            continue
+
+        as_list = list( token )
+        change = aug_tokens[ torch.randint( len(aug_tokens) -1 , (1,) ) ]
+        selected_ind = torch.randint( len(token) -1, (1,))
+        if as_list[selected_ind] not in aug_tokens:
+            # print( "cannot augment non alphabetical " )
+            continue
+        as_list[ selected_ind ] = change
+        sent[ind] = "".join( as_list )
+        # print("sent")
+        # print(sent)
+        # raise
+        augmented = True
+
+    return tuple(sent), augmented
 
 class TransformerModel(nn.Module):
 
@@ -53,13 +83,11 @@ class TransformerModel(nn.Module):
         self.encoder = AutoModel.from_pretrained(basemodel)
         self.encoder_hidden_dim = self.encoder.config.hidden_size
         self.classification_head = nn.Linear(self.encoder_hidden_dim, tagset_size)
-        # TODO initialize self.crf_layer in here as well.
-        # TODO modify the optimizers in a way that each model part is optimized with a proper learning rate!
-        self.optimizers = [
+        self.optimizers =[ 
             optim.Adam(
-                list(self.encoder.parameters()) + list(self.classification_head.parameters()),
+                list(self.encoder.parameters()) + list(self.classification_head.parameters() ),
                 lr=lr
-            )
+            ),
         ]
 
     def forward(self, sentence_input):
@@ -79,7 +107,8 @@ class FinetuneTagger:
             trainfile=os.path.join('data', 'train.txt.gz'),
             epochs=5,
             batchsize=4,
-            lr=5e-5
+            lr=5e-5,
+            aug_p = .01
         ):
         # the input sentences will be handled using this object, you do not need to manually encode input sentence words
         self.tokenizer = AutoTokenizer.from_pretrained(basemodel)
@@ -90,19 +119,25 @@ class FinetuneTagger:
         self.epochs = epochs
         self.batchsize = batchsize
         self.lr = lr
+        self.aug_p = aug_p
+
+
         self.training_data = []
         self.tag_to_ix = {}  # replace output labels / tags with an index
         self.ix_to_tag = []  # during inference we produce tag indices so we have to map it back to a tag
         self.model = None # setup the model in self.decode() or self.train()
 
     def load_training_data(self, trainfile):
+        
         if trainfile[-3:] == '.gz':
             with gzip.open(trainfile, 'rt') as f:
-                self.training_data = read_conll(f)
+                self.training_data = read_conll(f, aug_perc= self.aug_p )
         else:
             with open(trainfile, 'r') as f:
-                self.training_data = read_conll(f)
-
+                self.training_data = read_conll(f, aug_perc= self.aug_p )
+        # print( "self.training_data ")
+        # print( self.training_data[0] )
+        # raise
         for sent, tags in self.training_data:
             for tag in tags:
                 if tag not in self.tag_to_ix:
@@ -112,16 +147,26 @@ class FinetuneTagger:
         logging.info("tag_to_ix:", self.tag_to_ix)
         logging.info("ix_to_tag:", self.ix_to_tag)
 
+    
     def prepare_sequence(self, input_tokens_list, target_sequence=None):
         """
         The function that creates single example (input, target) training tensors or (input) inference tensors.
         """
+        #     print( "augment_sentence" )
+        #     input_tokens_list = self.augment_sentence( input_tokens_list )
+        if target_sequence:
+            input_tokens_list, is_augmented = augment_sentence( input_tokens_list, aug_perc= self.aug_p )
+            if is_augmented:
+                logging.info( 'sentence augmented ' )
+                logging.info( input_tokens_list )
+
         sentence_in = self.tokenizer(
             input_tokens_list,
             is_split_into_words=True,
             add_special_tokens=False,
             return_tensors="pt"
         )
+        
         if target_sequence:
             subword_positions = sentence_in.encodings[0].word_ids
             idxs = [self.tag_to_ix[w] for w in target_sequence]
@@ -188,7 +233,9 @@ class FinetuneTagger:
                 loss.backward()
                 # TODO you may want to freeze the BERT encoder for a couple of epochs
                 #   and then start performing full fine-tuning.
-                for optimizer in self.model.optimizers:
+                for ind, optimizer in enumerate( self.model.optimizers):
+                    # if ind == 0 and epoch < 2:
+                    #     continue
                     optimizer.step()
                 # HINT: getting the value of loss below 2.0 might mean your model is moving in the right direction!
                 train_iterator.set_description(f"loss: {total_loss/loss_count:.3f}")
@@ -241,6 +288,7 @@ class FinetuneTagger:
         decoder_output = []
         for sent in tqdm.tqdm(input_data):
             decoder_output.append(self.argmax(model, sent))
+
         return decoder_output
 
 if __name__ == '__main__':
@@ -267,8 +315,10 @@ if __name__ == '__main__':
                             help="the learning rate used to finetune the BERT-like encoder module.")
     argparser.add_argument("-f", "--force", dest="force", action="store_true", default=False,
                             help="force training phase (warning: can be slow)")
-    argparser.add_argument("-l", "--logfile", dest="logfile", default=None,
+    argparser.add_argument("-l", "--logfile", dest="logfile", default="info.log",
                             help="log file for debugging")
+    argparser.add_argument( "-aug", "--augmentation-percentage", dest= "aug_p", type= float, default= .15,
+                           help= "percentage of the chunks being augmented while training" )
     opts = argparser.parse_args()
     if opts.logfile is not None:
         logging.basicConfig(filename=opts.logfile, filemode='w', level=logging.DEBUG)
@@ -282,7 +332,8 @@ if __name__ == '__main__':
                     trainfile=opts.trainfile,
                     epochs=opts.epochs,
                     batchsize=opts.batchsize,
-                    lr=opts.lr
+                    lr=opts.lr,
+                    aug_p = opts.aug_p
                 )
     if not os.path.isfile(modelfile + opts.modelsuffix) or opts.force:
         print(f"Could not find modelfile {modelfile + opts.modelsuffix} or -f used. Starting training.", file=sys.stderr)
