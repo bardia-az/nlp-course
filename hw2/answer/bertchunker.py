@@ -5,6 +5,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 from transformers import AutoTokenizer, AutoModel
 import tqdm
+import random
+
+random.seed(1)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
@@ -27,7 +30,6 @@ def read_conll(handle, input_idx=0, label_idx=2, aug_perc = .01):
     return conll_data
 
 def augment_sentence( sent, aug_perc ):
-
     chance = torch.rand( len(sent) )
     selected_tokens = torch.where( chance <  aug_perc)[0]
     sent = list( sent )
@@ -35,25 +37,32 @@ def augment_sentence( sent, aug_perc ):
     
     for ind in selected_tokens:
         token = sent[ind]   
-
-        if len( token ) == 1 :
+        if len( token ) < 3 :
             continue
-        
         as_list = list( token )
+        operation = random.choice(["swap", "insert", "drop", "replace"])
         
-
-        change = aug_tokens[ torch.randint( len(aug_tokens) -1 , (1,) ) ]
-        selected_ind = torch.randint( len(token) -1, (1,))
+        if operation == "replace":
+            selected_ind = random.randint(0, len(token) -1)
+            if as_list[selected_ind] not in aug_tokens:
+                continue
+            new_char = aug_tokens[random.randint(0, len(aug_tokens)-1)]
+            as_list[selected_ind] = new_char
+        elif operation == "drop":
+            selected_ind = random.randint(0, len(token) -1)
+            if as_list[selected_ind] not in aug_tokens:
+                continue
+            del as_list[selected_ind]
+        elif operation == "swap":
+            selected_ind = random.randint(0, len(token) -2)
+            as_list[selected_ind], as_list[selected_ind+1] = as_list[selected_ind+1], as_list[selected_ind]
+        elif operation == "insert":
+            selected_ind = random.randint(0, len(token))
+            new_char = aug_tokens[random.randint(0, len(aug_tokens)-1)]
+            as_list.insert(selected_ind, new_char)
         
-        if as_list[selected_ind] not in aug_tokens:
-            continue
-
-        as_list[ selected_ind ] = change
-        
-        sent[ind] = "".join( as_list )
-    
+        sent[ind] = "".join(as_list)
         augmented = True
-
     return tuple(sent), augmented
 
 class TransformerModel(nn.Module):
