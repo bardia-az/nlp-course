@@ -115,6 +115,7 @@ class TransformerModel(nn.Module):
                 lr= 0.1
                       )
         ]
+        
         self.lr_schedulers = [
             ExponentialLR(self.optimizers[0], 0.9),
             ExponentialLR(self.optimizers[1], 0.9),
@@ -150,8 +151,6 @@ class FinetuneTagger:
         self.batchsize = batchsize
         self.lr = lr
         self.aug_p = aug_p
-
-
         self.training_data = []
         self.tag_to_ix = {}  # replace output labels / tags with an index
         self.ix_to_tag = []  # during inference we produce tag indices so we have to map it back to a tag
@@ -165,9 +164,7 @@ class FinetuneTagger:
         else:
             with open(trainfile, 'r') as f:
                 self.training_data = read_conll(f, aug_perc= self.aug_p )
-        # print( "self.training_data ")
-        # print( self.training_data[0] )
-        # raise
+
         for sent, tags in self.training_data:
             for tag in tags:
                 if tag not in self.tag_to_ix:
@@ -182,8 +179,6 @@ class FinetuneTagger:
         """
         The function that creates single example (input, target) training tensors or (input) inference tensors.
         """
-        #     print( "augment_sentence" )
-        #     input_tokens_list = self.augment_sentence( input_tokens_list )
         if target_sequence:
             input_tokens_list, is_augmented = augment_sentence( input_tokens_list, aug_perc= self.aug_p )
             if is_augmented:
@@ -274,11 +269,7 @@ class FinetuneTagger:
                 total_loss += loss.item()
                 loss_count += 1
                 loss.backward()
-                # TODO you may want to freeze the BERT encoder for a couple of epochs
-                #   and then start performing full fine-tuning.
-                for ind, optimizer in enumerate( self.model.optimizers):
-                    # if ind == 0 and epoch < 2:
-                    #     continue
+                for optimizer in self.model.optimizers:
                     optimizer.step()
                 # HINT: getting the value of loss below 2.0 might mean your model is moving in the right direction!
                 train_iterator.set_description(f"loss: {total_loss/loss_count:.3f}")

@@ -1,7 +1,7 @@
 We have implemented these ideas: 
 1- Data augmentation (to achieve this goal, a function is implemented that augments a sentence by randomly replacing some of the characters. we have implemented data augmentation dynamically, which means every epoch, a new augmentation step is applied to the data) 
 2-second optimizer (we have tried a separate optimizer for classification_head and freezing encoder parameters for 2 epochs before starting to fine-tune the model), 
-3-MLP classification head (the classification head was modified also we have increased the number of training epochs to 10.)
+3-MLP classification head (the classification head was modified also we have increased the number of training epochs to 40.)
 
 My groupmate and I completed all of the work for this assignment and made equal contributions.
 
