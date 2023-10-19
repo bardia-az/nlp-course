@@ -102,7 +102,7 @@ class TransformerModel(nn.Module):
             ),
             optim.SGD( 
                 list(self.classification_head.parameters() ) ,
-                lr= 1e-2
+                lr= 0.1
                       )
         ]
 
@@ -224,6 +224,10 @@ class FinetuneTagger:
             # elif epoch==1:
             #     for param in self.model.encoder.parameters():
             #         param.requires_grad = True
+            if epoch==15:
+                for optimizer in self.model.optimizers:
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] *= 0.5
 
             for tokenized_sentence, tags in train_iterator:
                 # Step 1. Get our inputs ready for the network, that is, turn them into
