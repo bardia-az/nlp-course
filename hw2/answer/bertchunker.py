@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.optim.lr_scheduler import ExponentialLR
 from transformers import AutoTokenizer, AutoModel
 import tqdm
 import random
@@ -104,7 +105,7 @@ class TransformerModel(nn.Module):
 
         # TODO initialize self.crf_layer in here as well.
         # TODO modify the optimizers in a way that each model part is optimized with a proper learning rate!
-        self.optimizers =[ 
+        self.optimizers = [ 
             optim.Adam(
                 list(self.encoder.parameters()),
                 lr=lr
@@ -113,6 +114,10 @@ class TransformerModel(nn.Module):
                 list(self.classification_head.parameters() ) ,
                 lr= 0.1
                       )
+        ]
+        self.lr_schedulers = [
+            ExponentialLR(self.optimizers[0], 0.9),
+            ExponentialLR(self.optimizers[1], 0.9),
         ]
 
     def forward(self, sentence_input):
@@ -233,10 +238,10 @@ class FinetuneTagger:
             # elif epoch==1:
             #     for param in self.model.encoder.parameters():
             #         param.requires_grad = True
-            if epoch==15:
-                for optimizer in self.model.optimizers:
-                    for param_group in optimizer.param_groups:
-                        param_group['lr'] *= 0.5
+
+            if epoch >= 4:
+                for lr_schduler in self.model.lr_schedulers:
+                    lr_schduler.step()
 
             for tokenized_sentence, tags in train_iterator:
                 # Step 1. Get our inputs ready for the network, that is, turn them into
@@ -345,7 +350,7 @@ if __name__ == '__main__':
     argparser.add_argument("-M", "--basemodel", dest="basemodel",
                             default='distilbert-base-uncased',
                             help="The base huggingface pretrained model to be used as the encoder.")
-    argparser.add_argument("-e", "--epochs", dest="epochs", type=int, default=20,
+    argparser.add_argument("-e", "--epochs", dest="epochs", type=int, default=40,
                             help="number of epochs [default: 5]")
     argparser.add_argument("-b", "--batchsize", dest="batchsize", type=int, default=16,
                             help="batch size [default: 16]")
