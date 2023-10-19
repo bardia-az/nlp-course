@@ -27,30 +27,31 @@ def read_conll(handle, input_idx=0, label_idx=2, aug_perc = .01):
     return conll_data
 
 def augment_sentence( sent, aug_perc ):
-    # print('augmenting!')
-    # print( sent )
+
     chance = torch.rand( len(sent) )
     selected_tokens = torch.where( chance <  aug_perc)[0]
     sent = list( sent )
     augmented = False
-    # print( selected_tokens )
+    
     for ind in selected_tokens:
-        token = sent[ind]
-        if len( token ) == 1 :
-            # print("insufficient len")
-            continue
+        token = sent[ind]   
 
+        if len( token ) == 1 :
+            continue
+        
         as_list = list( token )
+        
+
         change = aug_tokens[ torch.randint( len(aug_tokens) -1 , (1,) ) ]
         selected_ind = torch.randint( len(token) -1, (1,))
+        
         if as_list[selected_ind] not in aug_tokens:
-            # print( "cannot augment non alphabetical " )
             continue
+
         as_list[ selected_ind ] = change
+        
         sent[ind] = "".join( as_list )
-        # print("sent")
-        # print(sent)
-        # raise
+    
         augmented = True
 
     return tuple(sent), augmented
@@ -84,15 +85,14 @@ class TransformerModel(nn.Module):
         self.encoder_hidden_dim = self.encoder.config.hidden_size
         # self.classification_head = nn.Linear(self.encoder_hidden_dim, tagset_size)
         self.classification_head = nn.Sequential(
-            nn.Dropout(.2),
+            nn.Dropout(.1, inplace=False),
             nn.Linear( self.encoder_hidden_dim, 512 ),
             nn.GELU(),
             nn.Linear( 512, 512 ),
             nn.GELU(),
             nn.Linear( 512, tagset_size )
-
-
         )
+
         # TODO initialize self.crf_layer in here as well.
         # TODO modify the optimizers in a way that each model part is optimized with a proper learning rate!
         self.optimizers =[ 
@@ -142,7 +142,6 @@ class FinetuneTagger:
         self.tag_to_ix = {}  # replace output labels / tags with an index
         self.ix_to_tag = []  # during inference we produce tag indices so we have to map it back to a tag
         self.model = None # setup the model in self.decode() or self.train()
-
 
     def load_training_data(self, trainfile):
         
@@ -217,6 +216,15 @@ class FinetuneTagger:
         for epoch in range(self.epochs):
             train_iterator = tqdm.tqdm(self.training_data)
             batch = []
+            # TODO you may want to freeze the BERT encoder for a couple of epochs
+            #   and then start performing full fine-tuning.
+            # if epoch==0:
+            #     for param in self.model.encoder.parameters():
+            #         param.requires_grad = False
+            # elif epoch==1:
+            #     for param in self.model.encoder.parameters():
+            #         param.requires_grad = True
+
             for tokenized_sentence, tags in train_iterator:
                 # Step 1. Get our inputs ready for the network, that is, turn them into
                 # Tensors of subword indices. Pre-trained ransformer based models come with their fixed
@@ -324,7 +332,7 @@ if __name__ == '__main__':
     argparser.add_argument("-M", "--basemodel", dest="basemodel",
                             default='distilbert-base-uncased',
                             help="The base huggingface pretrained model to be used as the encoder.")
-    argparser.add_argument("-e", "--epochs", dest="epochs", type=int, default=10,
+    argparser.add_argument("-e", "--epochs", dest="epochs", type=int, default=20,
                             help="number of epochs [default: 5]")
     argparser.add_argument("-b", "--batchsize", dest="batchsize", type=int, default=16,
                             help="batch size [default: 16]")
