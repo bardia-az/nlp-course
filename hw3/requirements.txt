@@ -1,0 +1,16 @@
+numpy
+notebook
+jupyter_contrib_nbextensions
+jupyter_nbextensions_configurator
+torch
+matplotlib>=2.0.2
+tqdm>=4.19.5
+torchtext>=0.9
+Pillow>=5.0.0
+seaborn>=0.8.1
+tensorboardX>=1.1
+spacy
+pandas
+sacrebleu
+# de_core_news_sm   ## You should run:  python -m spacy download de_core_news_sm
+# en_core_web_sm    ## You should run:  python -m spacy download en_core_web_sm
