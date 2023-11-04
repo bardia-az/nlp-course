@@ -12,7 +12,7 @@ import re
 import sys
 import optparse
 from tqdm import tqdm
-
+from heapq import heappop, heappush, nlargest
 import spacy
 
 import torch
@@ -62,7 +62,8 @@ class AttentionModule(nn.Module):
         self.W_enc = nn.Linear(attention_dim, attention_dim, bias=False)
         self.W_dec = nn.Linear(attention_dim, attention_dim, bias=False)
         self.V_att = nn.Linear(attention_dim, 1, bias=False)
-        return
+        self.softmax = nn.Softmax(dim = 0)
+        # return
 
     # Start working from here, both 'calcAlpha' and 'forward' need to be fixed
     def calcAlpha(self, decoder_hidden, encoder_out):
@@ -71,8 +72,17 @@ class AttentionModule(nn.Module):
         param decoder_hidden: (seq, batch, dim)
         """
         seq, batch, dim = encoder_out.shape
-        scores = torch.Tensor([seq * [batch * [1]]]).permute(2, 1, 0)
-        alpha = torch.nn.functional.softmax(scores, dim=1)
+        # seq1, batch1, dim1 = decoder_hidden.shape
+        # if seq != seq1 or batch != batch1 or dim != dim1:
+        #     raise 
+
+        enc = self.W_enc( encoder_out )
+        dec = self.W_dec( decoder_hidden )
+
+        scores = enc + dec
+        beta = self.V_att( torch.nn.functional.tanh( scores ) )
+        alpha = self.softmax( beta )
+        
         return alpha
 
     def forward(self, decoder_hidden, encoder_out):
@@ -80,10 +90,18 @@ class AttentionModule(nn.Module):
         encoder_out: (seq, batch, dim),
         decoder_hidden: (seq, batch, dim)
         """
-        alpha = self.calcAlpha(decoder_hidden, encoder_out)
-        seq, _, dim = encoder_out.shape
-        context = (torch.sum(encoder_out, dim=0) / seq).reshape(1, 1, dim)
-        return context, alpha.permute(2, 0, 1)
+        seq, batch, dim = encoder_out.shape
+
+        alpha = self.calcAlpha(decoder_hidden, encoder_out) # seq, batch, dim=1
+
+        # context = (torch.sum(encoder_out, dim=0) / seq).reshape(1, 1, dim)
+        context = torch.zeros( ( 1, seq, dim ) , device = alpha.device)
+        for i in range( seq ):
+            res = alpha[ i,... ] * encoder_out[i,...]
+            context[ 0, i, ...] = res.unsqueeze(0)
+        context = context.sum( dim = 1 ).unsqueeze(1)
+
+        return context, alpha.permute(2, 1, 0)
 
 
 # -- Step 2: Improvements ---
@@ -102,6 +120,10 @@ def greedyDecoder(decoder, encoder_out, encoder_hidden, maxLen):
     output = torch.autograd.Variable(
         outputs.data.new(1, batch_size).fill_(hp.sos_idx).long())
     for t in range(maxLen):
+        # print( 'output' )
+        # print( output )
+        # print( output.shape )
+        # raise
         output, decoder_hidden, alpha = decoder(
             output, encoder_out, decoder_hidden)
         outputs[t] = output
@@ -121,6 +143,103 @@ def translate(model, input_dl):
         output = model.tgt2txt(output[:, 0].data).strip().split('<eos>')[0]
         results.append(output)
     return results
+
+
+class BeamNode:
+    def __init__(self, output, score, prev_node, len, logits, decoder_hidden) -> None:
+        self.output = output
+        self.logits = logits
+        self.score = score
+        self.prev_node = prev_node
+        self.len = len
+        self.token = output
+        self.decoder_hidden = decoder_hidden
+    def get_seq( self, place_holder):
+        node = self
+        sequences = torch.zeros( place_holder.shape[0] )
+        for index in reversed( range( self.len ) ):
+            place_holder[ index -1, : ] = node.logits
+            sequences[index - 1] = node.token
+            node = self.prev_node
+
+        return place_holder , sequences
+    
+def beam_search(  decoder, encoder_out, encoder_hidden, maxLen, beam_width ):
+    seq1_len, batch_size, _ = encoder_out.size()
+    target_vocab_size = decoder.target_vocab_size
+    decoder_hidden = encoder_hidden[-decoder.n_layers:]
+    outputs = torch.autograd.Variable(
+            encoder_out.data.new(maxLen, batch_size, target_vocab_size))
+    sequences = torch.Tensor( maxLen, batch_size, 1 )
+    # take what we need from encoder
+    decoder_hidden = encoder_hidden[-decoder.n_layers:]
+    # start token (ugly hack)
+    output = torch.autograd.Variable(
+        outputs.data.new(1, batch_size).fill_(hp.sos_idx).long())
+    
+    res = []
+    for batch_id in range(batch_size):
+        # nodes_cach = []
+        last_nodes = []
+        end_nodes = []
+        new_output, decoder_hidden, alpha = decoder(
+                        output.reshape(1,-1), encoder_out, decoder_hidden)
+        
+        node = BeamNode( output= new_output.argmax(dim = 2 ), score= torch.tensor(0., device= decoder_hidden.device ), \
+                        prev_node= None, len= 1, logits= new_output, decoder_hidden= decoder_hidden)
+        heappush(  last_nodes, ( -node.score, id(node), node ) )
+        iterations = 0
+        while True:
+            new_ = []
+            if len( last_nodes ) > 200:
+                for item in nlargest( 200, last_nodes ):
+                    heappush( new_, item )
+                last_nodes = new_
+            score , _ , node = heappop( last_nodes )
+            decoder_hidden = node.decoder_hidden.to( decoder_hidden.device )
+            output = node.output
+            if node.token == hp.eos_idx or node.len > maxLen:
+                end_nodes.append( node )
+                if len( end_nodes) >= beam_width:
+                    break
+                else:
+                    continue
+
+            new_output, decoder_hidden, alpha = decoder(
+                        output.reshape(-1,1), encoder_out, decoder_hidden)
+            del node.decoder_hidden
+            # print( 'new_output' )
+            # print( new_output.shape )
+            # print( torch.topk( new_output, k = 1, dim= 2 ) )
+            # raise
+            topk = torch.topk( new_output, k = beam_width, dim= 2, )
+            # print( 'topk' )
+            # print( topk )
+            # raise
+            probs = topk[0].squeeze((0,1))
+            tokens = topk[1].squeeze((0,1))
+            for item in zip( probs, tokens ):
+                # print('selected token index')
+                # print( item[1] )
+                # print( 'token, score' )
+                # print( item[1], item[0]+ node.score )
+                new_node =  BeamNode(
+                    output= item[1] ,
+                    score= torch.log( item[0] ) - node.score ,
+                    prev_node= node ,
+                    len = node.len + 1 ,
+                    logits= new_output,
+                    decoder_hidden= decoder_hidden.to( 'cpu' ),
+                )
+                heappush( last_nodes, ( ( -new_node.score , id(new_node), new_node ) ) )
+            iterations += 1
+        
+        node = sorted( end_nodes, key= lambda x: x.score )[0]
+        outputs[:, batch_id, :], sequences[:,batch_id, 0] = node.get_seq( outputs[:, batch_id, :] )
+        
+    return outputs,  None, sequences
+
+
 
 
 # ---Model Definition etc.---
