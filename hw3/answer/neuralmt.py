@@ -90,7 +90,9 @@ class AttentionModule(nn.Module):
 # -- Step 2: Improvements ---
 # Implement UNK replacement, BeamSearch, translation termination criteria here,
 # you can change 'greedyDecoder' and 'translate'.
-def greedyDecoder(decoder, encoder_out, encoder_hidden, maxLen):
+def greedyDecoder(decoder, encoder_out, encoder_hidden, maxLen, beam_width = 5 ):
+    if beam_width:
+        return beam_search(decoder, encoder_out, encoder_hidden, maxLen, beam_width)
     seq1_len, batch_size, _ = encoder_out.size()
     target_vocab_size = decoder.target_vocab_size
 
@@ -117,6 +119,18 @@ def translate(models, input_dl):
     results = []
     for i, batch in tqdm(enumerate(input_dl)):
         f, e = batch
+
+        ###### Beam Search ######
+        # res = model(f)
+        # if len(res) == 2:
+        #     output, attention = res
+        #     output = output.topk(1)[1]
+        #     output = model.tgt2txt(output[:, 0].data).strip().split('<eos>')[0]
+
+        # else:
+        #     output1 , _, seq = res
+        
+        ###### Ensembling #######
         for i, model in enumerate(models):
             output, attention = model(f)
             # if i==0:
@@ -134,25 +148,34 @@ def translate(models, input_dl):
 
 
 class BeamNode:
-    def __init__(self, output, score, prev_node, len, logits, decoder_hidden) -> None:
-        self.output = output
+    def __init__(self, token, score, prev_node, len, logits, decoder_hidden) -> None:
+        self.token = token
         self.logits = logits
         self.score = score
         self.prev_node = prev_node
         self.len = len
-        self.token = output
         self.decoder_hidden = decoder_hidden
-    def get_seq( self, place_holder):
-        node = self
-        sequences = torch.zeros( place_holder.shape[0] )
-        for index in reversed( range( self.len ) ):
-            place_holder[ index -1, : ] = node.logits
-            sequences[index - 1] = node.token
-            node = self.prev_node
 
-        return place_holder , sequences
+    def eval(self):
+        score = 0
+        node = self
+        for t in reversed( range( self.len  ) ):
+            score += node.score / node.len
+        return score
     
-def beam_search(  decoder, encoder_out, encoder_hidden, maxLen, beam_width ):
+    def get_seq( self, output_placeholder, sequences_placehodelr):
+        
+        node = self
+        logit = []
+        for t in reversed( range( self.len ) ):
+            # output_placeholder[t] = node.logits
+            logit.append( node.logits.squeeze(0) )
+            sequences_placehodelr[t] = node.token
+            node = node.prev_node
+
+        return torch.stack( list( reversed( logit ) ), dim=0 ), sequences_placehodelr
+    
+def beam_search(  decoder, encoder_out, encoder_hidden, maxLen, beam_width, max_iter = 5000 ):
     seq1_len, batch_size, _ = encoder_out.size()
     target_vocab_size = decoder.target_vocab_size
     decoder_hidden = encoder_hidden[-decoder.n_layers:]
@@ -166,66 +189,53 @@ def beam_search(  decoder, encoder_out, encoder_hidden, maxLen, beam_width ):
         outputs.data.new(1, batch_size).fill_(hp.sos_idx).long())
     
     res = []
-    for batch_id in range(batch_size):
-        # nodes_cach = []
-        last_nodes = []
-        end_nodes = []
-        new_output, decoder_hidden, alpha = decoder(
-                        output.reshape(1,-1), encoder_out, decoder_hidden)
-        
-        node = BeamNode( output= new_output.argmax(dim = 2 ), score= torch.tensor(0., device= decoder_hidden.device ), \
-                        prev_node= None, len= 1, logits= new_output, decoder_hidden= decoder_hidden)
-        heappush(  last_nodes, ( -node.score, id(node), node ) )
-        iterations = 0
-        while True:
-            new_ = []
-            if len( last_nodes ) > 200:
-                for item in nlargest( 200, last_nodes ):
-                    heappush( new_, item )
-                last_nodes = new_
-            score , _ , node = heappop( last_nodes )
-            decoder_hidden = node.decoder_hidden.to( decoder_hidden.device )
-            output = node.output
-            if node.token == hp.eos_idx or node.len > maxLen:
+    output, decoder_hidden, alpha = decoder(
+            output, encoder_out, decoder_hidden)
+    output = torch.nn.functional.softmax( output, dim= 2 )
+    logp = torch.log( torch.autograd.Variable(output.data.max(dim=2)[1]) )
+    token = torch.autograd.Variable(output.data.max(dim=2)[1])
+    node = BeamNode( token= token, score= logp, prev_node= None, len= 1,\
+                    logits= output , decoder_hidden= decoder_hidden)
+    nodes_cach = []
+    heappush( nodes_cach, ( -node.score, id( node ), node ) )
+    end_nodes = []
+    iterations = 0
+    while len( end_nodes ) < beam_width:
+        if iterations > max_iter:
+            while len( end_nodes ) < beam_width:
+                _, _, node = heappop( nodes_cach )
                 end_nodes.append( node )
-                if len( end_nodes) >= beam_width:
-                    break
-                else:
-                    continue
+            break
+        _, _, node = heappop( nodes_cach )
+        output = node.token
+        decoder_hidden = node.decoder_hidden
 
-            new_output, decoder_hidden, alpha = decoder(
-                        output.reshape(-1,1), encoder_out, decoder_hidden)
-            del node.decoder_hidden
-            # print( 'new_output' )
-            # print( new_output.shape )
-            # print( torch.topk( new_output, k = 1, dim= 2 ) )
-            # raise
-            topk = torch.topk( new_output, k = beam_width, dim= 2, )
-            # print( 'topk' )
-            # print( topk )
-            # raise
-            probs = topk[0].squeeze((0,1))
-            tokens = topk[1].squeeze((0,1))
-            for item in zip( probs, tokens ):
-                # print('selected token index')
-                # print( item[1] )
-                # print( 'token, score' )
-                # print( item[1], item[0]+ node.score )
-                new_node =  BeamNode(
-                    output= item[1] ,
-                    score= torch.log( item[0] ) - node.score ,
-                    prev_node= node ,
-                    len = node.len + 1 ,
-                    logits= new_output,
-                    decoder_hidden= decoder_hidden.to( 'cpu' ),
-                )
-                heappush( last_nodes, ( ( -new_node.score , id(new_node), new_node ) ) )
-            iterations += 1
-        
-        node = sorted( end_nodes, key= lambda x: x.score )[0]
-        outputs[:, batch_id, :], sequences[:,batch_id, 0] = node.get_seq( outputs[:, batch_id, :] )
-        
-    return outputs,  None, sequences
+        output, decoder_hidden, alpha = decoder(
+            output, encoder_out, decoder_hidden)
+        output = torch.nn.functional.softmax( output, dim= 2 )
+        logp, tokens = output.data.topk( k= beam_width,dim=2)
+        logp = torch.log( logp )
+
+        for lp, tk in zip( logp.squeeze((0,1)), tokens.squeeze((0,1)) ):
+            tk = tk.unsqueeze(0)
+            tk = tk.unsqueeze(0)
+            lp = lp.unsqueeze(0)
+            lp = lp.unsqueeze(0)
+            
+            new_node = BeamNode( token=tk, score=  lp
+                                , prev_node= node, len= node.len +1,
+                                  logits= output, decoder_hidden= decoder_hidden)
+            if new_node.len >= maxLen:
+                end_nodes.append( new_node )
+            else:
+                heappush( nodes_cach, ( -new_node.eval(), id( new_node ), new_node ) )
+                break
+        iterations += 1
+    best_node = sorted( end_nodes, key= lambda x: x.score  )[ -1 ]
+
+    outputs, sequences = best_node.get_seq( outputs, sequences )
+    return outputs, None, sequences
+
 
 
 
