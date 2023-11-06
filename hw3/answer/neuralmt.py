@@ -63,7 +63,6 @@ class AttentionModule(nn.Module):
         self.W_dec = nn.Linear(attention_dim, attention_dim, bias=False)
         self.V_att = nn.Linear(attention_dim, 1, bias=False)
         self.softmax = nn.Softmax(dim = 0)
-        # return
 
     # Start working from here, both 'calcAlpha' and 'forward' need to be fixed
     def calcAlpha(self, decoder_hidden, encoder_out):
@@ -71,18 +70,11 @@ class AttentionModule(nn.Module):
         param encoder_out: (seq, batch, dim),
         param decoder_hidden: (seq, batch, dim)
         """
-        seq, batch, dim = encoder_out.shape
-        # seq1, batch1, dim1 = decoder_hidden.shape
-        # if seq != seq1 or batch != batch1 or dim != dim1:
-        #     raise 
-
         enc = self.W_enc( encoder_out )
         dec = self.W_dec( decoder_hidden )
-
         scores = enc + dec
         beta = self.V_att( torch.nn.functional.tanh( scores ) )
         alpha = self.softmax( beta )
-        
         return alpha
 
     def forward(self, decoder_hidden, encoder_out):
@@ -90,17 +82,8 @@ class AttentionModule(nn.Module):
         encoder_out: (seq, batch, dim),
         decoder_hidden: (seq, batch, dim)
         """
-        seq, batch, dim = encoder_out.shape
-
         alpha = self.calcAlpha(decoder_hidden, encoder_out) # seq, batch, dim=1
-
-        # context = (torch.sum(encoder_out, dim=0) / seq).reshape(1, 1, dim)
-        context = torch.zeros( ( 1, seq, dim ) , device = alpha.device)
-        for i in range( seq ):
-            res = alpha[ i,... ] * encoder_out[i,...]
-            context[ 0, i, ...] = res.unsqueeze(0)
-        context = context.sum( dim = 1 ).unsqueeze(1)
-
+        context = torch.sum(alpha * encoder_out, dim=0).unsqueeze(0)
         return context, alpha.permute(2, 1, 0)
 
 
@@ -120,10 +103,6 @@ def greedyDecoder(decoder, encoder_out, encoder_hidden, maxLen):
     output = torch.autograd.Variable(
         outputs.data.new(1, batch_size).fill_(hp.sos_idx).long())
     for t in range(maxLen):
-        # print( 'output' )
-        # print( output )
-        # print( output.shape )
-        # raise
         output, decoder_hidden, alpha = decoder(
             output, encoder_out, decoder_hidden)
         outputs[t] = output
