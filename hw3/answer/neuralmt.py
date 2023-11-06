@@ -113,14 +113,22 @@ def greedyDecoder(decoder, encoder_out, encoder_hidden, maxLen):
     return outputs, alphas.permute(1, 2, 0)
 
 
-def translate(model, input_dl):
+def translate(models, input_dl):
     results = []
     for i, batch in tqdm(enumerate(input_dl)):
         f, e = batch
-        output, attention = model(f)
-        output = output.topk(1)[1]
-        output = model.tgt2txt(output[:, 0].data).strip().split('<eos>')[0]
+        for i, model in enumerate(models):
+            output, attention = model(f)
+            if i==0:
+                ens_output = output
+                ens_attention = attention
+            else:
+                ens_output += output
+                ens_attention += attention
+        ens_output = ens_output.topk(1)[1]
+        ens_output = models[0].tgt2txt(ens_output[:, 0].data).strip().split('<eos>')[0]
         results.append(output)
+        attention = ens_attention
     return results
 
 
@@ -449,10 +457,24 @@ def loadTestData(srcFile, srcLex, device=0, linesToLoad=sys.maxsize):
                          collate_fn=lambda batch:collate_batch(batch, srcLex, srcLex))
     return test_dl
 
+def load_models(dir):
+    models = []
+    for filename in os.listdir(dir):
+        if filename.endswith('.pt'):
+            file_path = os.path.join(dir, filename)
+            # print(file_path)
+            model = Seq2Seq(build=False)
+            model.load(file_path)
+            model.to(hp.device)
+            model.eval()
+            models.append(model)
+            print(f'{file_path} loaded')
+    return models
+
 if __name__ == '__main__':
     optparser = optparse.OptionParser()
     optparser.add_option(
-        "-m", "--model", dest="model", default=os.path.join('data', 'seq2seq_E049.pt'), 
+        "-m", "--model", dest="model", default=os.path.join('data'), 
         help="model file")
     optparser.add_option(
         "-i", "--input", dest="input", default=os.path.join('data', 'input', 'dev.txt'),
@@ -462,13 +484,15 @@ if __name__ == '__main__':
         help="num of lines to load")
     (opts, _) = optparser.parse_args()
 
-    model = Seq2Seq(build=False)
-    model.load(opts.model)
-    model.to(hp.device)
-    model.eval()
+    model = load_models(opts.model)
+    # model = Seq2Seq(build=False)
+    # model.load(opts.model)
+    # model.to(hp.device)
+    # model.eval()
+
     # loading test dataset
 
-    test_dl = loadTestData(opts.input, model.params['srcLex'],
+    test_dl = loadTestData(opts.input, model[0].params['srcLex'],
                            device=hp.device, linesToLoad=opts.num)
     results = translate(model, test_dl)
     print("\n".join(results))
