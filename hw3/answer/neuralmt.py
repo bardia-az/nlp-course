@@ -119,16 +119,17 @@ def translate(models, input_dl):
         f, e = batch
         for i, model in enumerate(models):
             output, attention = model(f)
-            if i==0:
-                ens_output = output
-                ens_attention = attention
-            else:
-                ens_output += output
-                ens_attention += attention
-        ens_output = ens_output.topk(1)[1]
+            # if i==0:
+            #     ens_output = output
+            #     ens_attention = attention
+            # else:
+            #     ens_output += output
+            #     ens_attention += attention
+            output = output.topk(1)[1]
+            ens_output = output if i==0 else torch.concat((ens_output, output), dim=-1)
+        ens_output, _ = torch.mode(ens_output, keepdim=True)
         ens_output = models[0].tgt2txt(ens_output[:, 0].data).strip().split('<eos>')[0]
-        results.append(output)
-        attention = ens_attention
+        results.append(ens_output)
     return results
 
 
@@ -468,7 +469,7 @@ def load_models(dir):
             model.to(hp.device)
             model.eval()
             models.append(model)
-            print(f'{file_path} loaded')
+            # print(f'{file_path} loaded')
     return models
 
 if __name__ == '__main__':
