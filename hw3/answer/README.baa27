@@ -1,0 +1,5 @@
+We did pretty much all the works together with my groupmate and we equally contributed to this homework.
+My groupmate fixed the attention module and implemented Beam Searching, and I tried to optimize the code of those parts.
+I also implemented Ensemble decoding which didn't work and reduced the accuracy.
+
+Bardia Azizian
