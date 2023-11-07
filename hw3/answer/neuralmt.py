@@ -91,8 +91,8 @@ class AttentionModule(nn.Module):
 # Implement UNK replacement, BeamSearch, translation termination criteria here,
 # you can change 'greedyDecoder' and 'translate'.
 def greedyDecoder(decoder, encoder_out, encoder_hidden, maxLen, beam_width = 5 ):
-    if beam_width:
-        return beam_search(decoder, encoder_out, encoder_hidden, maxLen, beam_width)
+    # if beam_width:
+    #     return beam_search(decoder, encoder_out, encoder_hidden, maxLen, beam_width)
     seq1_len, batch_size, _ = encoder_out.size()
     target_vocab_size = decoder.target_vocab_size
 
@@ -119,20 +119,15 @@ def translate(models, input_dl):
     results = []
     for i, batch in tqdm(enumerate(input_dl)):
         f, e = batch
-
-        ###### Beam Search ######
-        # res = model(f)
-        # if len(res) == 2:
-        #     output, attention = res
-        #     output = output.topk(1)[1]
-        #     output = model.tgt2txt(output[:, 0].data).strip().split('<eos>')[0]
-
-        # else:
-        #     output1 , _, seq = res
-        
         ###### Ensembling #######
         for i, model in enumerate(models):
-            output, attention = model(f)
+            res = model(f)
+            # output, attention = model(f)
+            if len(res) == 2:
+                output, attention = res
+            else:
+                output1 , _, seq = res
+
             # if i==0:
             #     ens_output = output
             #     ens_attention = attention
@@ -470,12 +465,14 @@ def loadTestData(srcFile, srcLex, device=0, linesToLoad=sys.maxsize):
 
 def load_models(dir):
     models = []
-    for filename in os.listdir(dir):
-        if filename.endswith('.pt'):
-            file_path = os.path.join(dir, filename)
-            # print(file_path)
+    if os.path.isfile(dir):
+        model_paths = [dir]
+    else:
+        model_paths = [os.path.join(dir, file) for file in os.listdir(dir)]
+    for model_path in model_paths:
+        if model_path.endswith('.pt'):
             model = Seq2Seq(build=False)
-            model.load(file_path)
+            model.load(model_path)
             model.to(hp.device)
             model.eval()
             models.append(model)
@@ -485,7 +482,7 @@ def load_models(dir):
 if __name__ == '__main__':
     optparser = optparse.OptionParser()
     optparser.add_option(
-        "-m", "--model", dest="model", default=os.path.join('data'), 
+        "-m", "--model", dest="model", default=os.path.join('data', 'seq2seq_E049.pt'), 
         help="model file")
     optparser.add_option(
         "-i", "--input", dest="input", default=os.path.join('data', 'input', 'dev.txt'),
@@ -496,13 +493,8 @@ if __name__ == '__main__':
     (opts, _) = optparser.parse_args()
 
     model = load_models(opts.model)
-    # model = Seq2Seq(build=False)
-    # model.load(opts.model)
-    # model.to(hp.device)
-    # model.eval()
 
     # loading test dataset
-
     test_dl = loadTestData(opts.input, model[0].params['srcLex'],
                            device=hp.device, linesToLoad=opts.num)
     results = translate(model, test_dl)
