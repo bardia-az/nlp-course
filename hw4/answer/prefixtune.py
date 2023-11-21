@@ -6,9 +6,11 @@ from pathlib import Path
 from transformers import AutoModelForCausalLM, AutoTokenizer, default_data_collator, get_linear_schedule_with_warmup
 from datasets import load_dataset
 from torch.utils.data import DataLoader
+from peft import get_peft_model, PrefixTuningConfig, PeftModel,  TaskType, PeftConfig
+import logging
 # import peft
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device =  torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class TableToText:
 
@@ -22,7 +24,7 @@ class TableToText:
             batchsize=4,
             lr=5e-5,
             virtualtokens=5,
-            prefixprojection=False
+            prefixprojection=True
         ):
         # the input sentences will be handled using this object, you do not need to manually encode input sentence words
         self.tokenizer = AutoTokenizer.from_pretrained(basemodel)
@@ -104,12 +106,14 @@ class TableToText:
     def train(self):
         data_loaders = self.get_data(splits=("train", ))
         model = AutoModelForCausalLM.from_pretrained(self.basemodel)
-
+        # print('train loop cdalled')
         # You can print the parameters for debugging or understanding the code
         # but make sure you comment it out otherwise it will pollute the output
         # that is produced for dev and test
         #model.print_trainable_parameters()
-
+        peft_config = PrefixTuningConfig( task_type= TaskType.CAUSAL_LM ,prefix_projection= self.prefixprojection , inference_mode=False, num_virtual_tokens= self.virtualtokens)
+        model = get_peft_model(model, peft_config)
+        # model.print_trainable_parameters()
         # TODO
         # if using HF peft module, then add calls to PrefixTuningConfig and get_peft_model
         # which will take num_virtual_tokens which is set to self.virtualtokens and
@@ -123,10 +127,19 @@ class TableToText:
         )
         model = model.to(device)
 
+        model.train()
         for epoch in range(self.epochs):
-            model.train()
-
+            # print(f'epoch {epoch}')
             # TODO rest of the training steps for prefix tuning
+            for step, batch in enumerate( tqdm( data_loaders['train'] ) ):
+                batch = {k: v.to(device) for k, v in batch.items()}
+                outputs = model(**batch)
+                loss = outputs.loss
+                loss.backward()
+                optimizer.step()
+                lr_scheduler.step()
+                optimizer.zero_grad()
+                # print(f'step {step}')
 
             if epoch == self.epochs - 1:
                 epoch_str = '' # last epoch so do not use epoch number in model filename
@@ -157,13 +170,14 @@ class TableToText:
             outputs = model.generate(
                 input_ids=inputs["input_ids"],
                 attention_mask=inputs["attention_mask"],
-                max_new_tokens=50,
+                max_new_tokens= 30,
                 eos_token_id=self.tokenizer.eos_token_id,
                 pad_token_id=self.tokenizer_pad_token_id,
                 do_sample=True,
-                num_beams=5,
+                num_beams=10,
                 top_p=0.9,
-                temperature=1.0,
+                temperature= 1.5,
+                no_repeat_ngram_size= 6,
                 num_return_sequences=num_sequences
             )
             # TODO you may want to generate more than one sequence and choose the best one!
@@ -179,10 +193,10 @@ if __name__ == '__main__':
                             default='e2e_nlg_cleaned',
                             help="name of hugging face cleaned up dataset for the E2E table to text task")
     argparser.add_argument("-v", "--virtualtokens", dest="virtualtokens",
-                            type=bool, default=5,
+                            type=int, default=10,
                             help="number of virtual prompt tokens for prefix tuning")
     argparser.add_argument("-p", "--prefixprojection", dest="prefixprojection",
-                            action="store_true", default=False,
+                            action="store_true", default=True,
                             help="whether to project the prefix embeddings")
     argparser.add_argument("-m", "--modelfile", dest="modelfile",
                             default=os.path.join('data', 'peft'),
@@ -194,7 +208,7 @@ if __name__ == '__main__':
                             help="The base huggingface pretrained model to be used as the encoder.")
     argparser.add_argument("-e", "--epochs", dest="epochs", type=int, default=1,
                             help="number of epochs [default: 1]")
-    argparser.add_argument("-b", "--batchsize", dest="batchsize", type=int, default=16,
+    argparser.add_argument("-b", "--batchsize", dest="batchsize", type=int, default=12,
                             help="batch size [default: 16]")
     argparser.add_argument("-r", "--lr", dest="lr", type=float, default=5e-5,
                             help="the learning rate used to finetune the BERT-like encoder module.")
@@ -205,9 +219,11 @@ if __name__ == '__main__':
     opts = argparser.parse_args()
     if opts.logfile is not None:
         logging.basicConfig(filename=opts.logfile, filemode='w', level=logging.DEBUG)
+    
     modelfile = opts.modelfile
     if modelfile.endswith('.pt'):
         modelfile = modelfile.removesuffix('.pt')
+    # modelfile = modelfile
     table_to_text = TableToText(
                         modelfile,
                         modelsuffix=opts.modelsuffix,
@@ -223,22 +239,33 @@ if __name__ == '__main__':
     # when you have implemented prefix tuning then change this to False to train and/or 
     # use your prefix tuned model
     model = None
-    if True:
+    if False:
         print(f"Loading the non-finetuned pre-trained model: {opts.basemodel}", file=sys.stderr)
         model = AutoModelForCausalLM.from_pretrained(opts.basemodel)
         model = model.to(device)
     else:
-        if not os.path.isdir(modelfile + opts.modelsuffix) or opts.force:
+        # print(f'this is : {modelfile + opts.modelsuffix}')
+        if not os.path.isdir(modelfile  + opts.modelsuffix) or opts.force:
             print(f"Could not find modelfile {modelfile + opts.modelsuffix} or -f used. Starting training.", file=sys.stderr)
             table_to_text.train()
             print("Training done.", file=sys.stderr)
         # use the model file if available and opts.force is False
         assert(os.path.isdir(modelfile + opts.modelsuffix))
         print(f"Found modelfile {modelfile + opts.modelsuffix}. Starting decoding.", file=sys.stderr)
-        model = AutoModelForCausalLM.from_pretrained(opts.basemodel)
+        # peft_config = PrefixTuningConfig( task_type= TaskType.CAUSAL_LM ,prefix_projection= False , inference_mode=False, num_virtual_tokens= 5 )
+        # model = get_peft_model(model, peft_config)
+        # model.load( modelfile + opts.modelsuffix )
         # TODO: if using hf peft library for prefix tuning:
-        # model = PeftModel.from_pretrained(model, modelfile + opts.modelsuffix)
+        # model = AutoModelForCausalLM.from_pretrained( 'data/peft.pt' )
+        config = PeftConfig.from_pretrained(  modelfile + opts.modelsuffix  )
+        # cfg = PeftConfig.from_pretrained( './' + modelfile + opts.modelsuffix )
+        model = AutoModelForCausalLM.from_pretrained( opts.basemodel )
+        model = PeftModel.from_pretrained( model,  modelfile + opts.modelsuffix  )
+        # model = model.merge_and_unload()
         model = model.to(device)
+        # table_to_text.model = model
+        model.eval()
+
     if model:
-        decoder_output = table_to_text.decode(model, opts.inputfile)
+        decoder_output = table_to_text.decode(model, opts.inputfile )
         print("\n".join(decoder_output))
