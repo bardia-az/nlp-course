@@ -1,4 +1,4 @@
 Found modelfile data/peft.pt. Starting decoding.
-0it [00:00, ?it/s]/media/sajad/New Volume/projects/mirzaei/nlp-class-hw/venv/lib/python3.10/site-packages/peft/peft_model.py:1081: UserWarning: Position ids are not supported for parameter efficient tuning. Ignoring position ids.
+0it [00:00, ?it/s]/home/bardia_az/nlp/nlpclass-1237-g-savagetokenizer/hw4/venv/lib/python3.11/site-packages/peft/peft_model.py:1081: UserWarning: Position ids are not supported for parameter efficient tuning. Ignoring position ids.
   warnings.warn("Position ids are not supported for parameter efficient tuning. Ignoring position ids.")
-1it [00:00,  1.30it/s]2it [00:01,  2.11it/s]3it [00:01,  2.58it/s]4it [00:01,  2.80it/s]5it [00:01,  2.99it/s]6it [00:02,  3.13it/s]7it [00:02,  3.26it/s]8it [00:02,  3.36it/s]9it [00:03,  3.38it/s]10it [00:03,  3.34it/s]10it [00:03,  2.96it/s]
+1it [00:01,  1.61s/it]2it [00:02,  1.12it/s]3it [00:02,  1.50it/s]4it [00:02,  1.79it/s]5it [00:03,  2.02it/s]6it [00:03,  2.19it/s]7it [00:03,  2.30it/s]8it [00:04,  2.39it/s]9it [00:04,  2.42it/s]10it [00:05,  2.42it/s]10it [00:05,  1.94it/s]
