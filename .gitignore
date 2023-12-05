@@ -163,3 +163,7 @@ dmypy.json
 !**/images/*.pdf
 *.bcf
 *.run.xml
+
+# Unwanted dirs
+.vscode
+eastereggs
