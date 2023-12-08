@@ -234,6 +234,7 @@ class BertForSequenceClassification(BertPreTrainedModel):
         pooled_output = outputs[1]
         pooled_output = self.seq_dropout(pooled_output)
         seq_logits = self.ner_classifier1(pooled_output)
+        # add a non-linearity here probably
         seq_logits = self.dropout2(seq_logits)
         seq_logits = self.ner_classifier2(seq_logits)
 

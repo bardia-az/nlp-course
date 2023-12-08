@@ -382,7 +382,7 @@ def main():
 
     # load data
     logger.info('Processing and loading data')
-    cache_path = 'data/cached_train_test_{}'.format(args.max_seq_length)
+    cache_path = os.path.join(args.data_dir, 'cached_train_test_{}'.format(args.max_seq_length))
     if not os.path.exists(cache_path):
         load_and_cache_dataset(args.data_dir, args.model_type, args.max_seq_length, args.num_labels)
 

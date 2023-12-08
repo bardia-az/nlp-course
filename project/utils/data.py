@@ -97,8 +97,8 @@ def load_and_cache_dataset(DATA_PATH, BERT_MODEL='bert-base-uncased', MAX_LEN=25
     tokenizer = BertTokenizerFast.from_pretrained(BERT_MODEL)
 
     # load ner data
-    train_ner_texts, train_ner_tags = read_wnut(os.path.join(DATA_PATH, 'ner_train.txt'))
-    test_ner_texts, test_ner_tags = read_wnut(os.path.join(DATA_PATH, 'ner_dev.txt'))
+    train_ner_texts, train_ner_tags = read_wnut(os.path.join(DATA_PATH, 'train.txt'))
+    test_ner_texts, test_ner_tags = read_wnut(os.path.join(DATA_PATH, 'dev.txt'))
 
     tags = deepcopy(train_ner_tags)
     tags.extend(test_ner_tags)
@@ -148,7 +148,8 @@ def load_and_cache_dataset(DATA_PATH, BERT_MODEL='bert-base-uncased', MAX_LEN=25
 
     data_to_save = (
     train_encodings, train_seq_labels, train_ner_labels, test_encodings, test_seq_labels, test_ner_labels)
-    with open('data/cached_train_test_{}'.format(MAX_LEN), 'wb') as f:
+    cache_file = os.path.join(DATA_PATH, 'cached_train_test_{}'.format(MAX_LEN))
+    with open(cache_file, 'wb') as f:
         pickle.dump(data_to_save, f)
 
 

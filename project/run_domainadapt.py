@@ -127,7 +127,7 @@ def get_dataset(
             file_path=file_path,
             block_size=args.block_size,
             overwrite_cache=args.overwrite_cache,
-            cache_dir=cache_dir,
+            # cache_dir=cache_dir,
         )
 
 
