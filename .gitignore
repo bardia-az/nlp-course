@@ -167,3 +167,5 @@ dmypy.json
 # Unwanted dirs
 .vscode
 eastereggs
+project/models
+*cached*

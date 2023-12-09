@@ -328,7 +328,7 @@ def main():
         help="The directory to save predict result. Use it with --do_predict",
     )
     parser.add_argument(
-        "--max_seq_length", default=256, type=int, help="Max sequence length for prediction"
+        "--max_seq_length", default=512, type=int, help="Max sequence length for prediction"
     )
     parser.add_argument(
         "--bert_lr", default=5e-5, type=float, help="The peak learning rate for BERT."

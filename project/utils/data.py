@@ -9,6 +9,7 @@ import numpy as np
 from transformers import BertTokenizerFast
 from pathlib import Path
 from copy import deepcopy
+from sklearn.model_selection import train_test_split
 
 
 
@@ -92,7 +93,7 @@ def load_seq_data_from_json(path, MAX_LEN):
     return texts, labels
 
 
-def load_and_cache_dataset(DATA_PATH, BERT_MODEL='bert-base-uncased', MAX_LEN=256, num_labels=12):
+def load_and_cache_dataset(DATA_PATH, BERT_MODEL='bert-base-uncased', MAX_LEN=512, num_labels=12):
     # tokenization
     tokenizer = BertTokenizerFast.from_pretrained(BERT_MODEL)
 
@@ -171,3 +172,75 @@ def load_and_cache_predict_dataset(DATA_PATH, BERT_MODEL, MAX_LEN=256):
     data_to_save = (predict_encodings, predict_seq_label, predict_ner_label)
     with open('data/cached_predict_{}_{}'.format(DATA_PATH.split('/')[-1].replace(".","_"), MAX_LEN), 'wb') as f:
         pickle.dump(data_to_save, f)
+
+
+def load_dataset_from_json(path, MAX_LEN):
+    with open(path, "r") as f:
+        data = json.load(f)
+    
+    texts = []
+    infos = []
+    for item in data:
+        if 'ticker' in item['labels']:
+            if item['labels']['ticker'] and 'start_price_open' in item['labels'] and 'end_price_3day' in item['labels']:
+                text = item['title'] + " " + item['text']
+                text = " ".join(text.split()[:MAX_LEN])
+                texts.append(text)
+                info = {'start_price': item['labels']['start_price_open'],
+                        'end_price': item['labels']['end_price_3day'],
+                        # 'highest_price': item['labels']['highest_price_3day'],
+                        # 'lowest_price': item['labels']['lowest_price_3day'],
+                }
+                infos.append(info)
+    
+    return texts, infos
+
+
+def get_label(info, thresh=3.0):
+    labels = []
+    for item in info:
+        price_diff = item['end_price'] - item['start_price']
+        if price_diff / item['start_price'] * 100 > thresh:     # Upward trend
+            # label = [1, 0, 0]
+            label = 0
+        elif price_diff / item['start_price'] * 100 < -thresh:  # Downward trend
+            # label = [0, 0, 1]
+            label = 2
+        else:
+            # label = [0, 1, 0]
+            label = 1
+        labels.append(label)
+    return labels
+    
+
+def load_and_cache_benchmark_dataset(DATA_PATH, BERT_MODEL='bert-base-uncased', MAX_LEN=512, random_seed=24):
+    # tokenization
+    tokenizer = BertTokenizerFast.from_pretrained(BERT_MODEL)
+
+    text, info = load_dataset_from_json(DATA_PATH, MAX_LEN)
+    labels = get_label(info)
+    train_text, val_text, train_labels, val_labels = train_test_split(text, labels, test_size=0.15, random_state=random_seed)
+
+    train_encodings = tokenizer(train_text, padding=True, truncation=True, max_length=MAX_LEN)
+    val_encodings = tokenizer(val_text, padding=True, truncation=True, max_length=MAX_LEN)
+
+    data_to_save = (
+    train_encodings, train_labels, val_encodings, val_labels)
+    cache_file = os.path.join(os.path.dirname(DATA_PATH), 'cached_train_test_{}'.format(MAX_LEN))
+    with open(cache_file, 'wb') as f:
+        pickle.dump(data_to_save, f)
+    return
+
+
+class StockDataset(torch.utils.data.Dataset):
+    def __init__(self, encodings, labels):
+        self.encodings = encodings
+        self.labels = labels
+
+    def __getitem__(self, idx):
+        item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
+        item['labels'] = torch.tensor(self.labels[idx])
+        return item
+
+    def __len__(self):
+        return len(self.labels)

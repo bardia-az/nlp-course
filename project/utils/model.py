@@ -247,6 +247,75 @@ class BertForSequenceClassification(BertPreTrainedModel):
             outputs = (loss,) + outputs
 
         return outputs
+    
+
+
+class StockBertForSequenceClassification(BertForSequenceClassification):
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.stock_labels = config.stock_labels
+        self.max_seq_length = config.max_seq_length
+        self.token_classifier = nn.Linear(config.hidden_size, self.stock_labels)
+        self.token_activation = nn.GELU()
+        self.final_classifier1 = nn.Linear(config.num_labels + self.max_seq_length * self.stock_labels, 2048)
+        self.final_dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.final_activation = nn.GELU()
+        self.final_classifier2 = nn.Linear(2048, self.stock_labels)
+
+        self.init_weights()
+
+    def forward(self,
+                input_ids=None,
+                attention_mask=None,
+                token_type_ids=None,
+                position_ids=None,
+                head_mask=None,
+                inputs_embeds=None,
+                labels=None,
+                output_attentions=None,
+                output_hidden_states=None,
+                return_dict=None):
+
+        outputs = self.bert(input_ids,
+                            attention_mask=attention_mask,
+                            token_type_ids=token_type_ids,
+                            position_ids=position_ids,
+                            head_mask=head_mask,
+                            inputs_embeds=inputs_embeds,
+                            output_attentions=output_attentions,
+                            output_hidden_states=output_hidden_states,
+                            return_dict=return_dict
+                            )
+
+        pooled_output = outputs[1]
+        pooled_output = self.seq_dropout(pooled_output)
+        seq_logits = self.ner_classifier1(pooled_output)
+        # add a non-linearity here probably
+        seq_logits = self.dropout2(seq_logits)
+        seq_logits = self.ner_classifier2(seq_logits)
+
+        token_logits = self.token_classifier(outputs[0])
+        token_logits = self.token_activation(token_logits)
+
+        final_input = torch.cat((seq_logits, token_logits.view(token_logits.shape[0], -1)), dim=1)
+
+        final_logits = self.final_classifier1(final_input)
+        final_logits = self.final_dropout(final_logits)
+        final_logits = self.final_activation(final_logits)
+        final_logits = self.final_classifier2(final_logits)
+        final_logits = nn.functional.softmax(final_logits, dim=1)
+
+        outputs = (final_logits,) + (seq_logits,) + outputs[2:]  # add hidden states and attention if they are here
+
+        if labels is not None:
+            loss_fct = CrossEntropyLoss()
+            loss = loss_fct(final_logits, labels)
+
+            outputs = (loss,) + outputs
+
+        return outputs
+
 
 
 class BertForTokenClassification(BertPreTrainedModel):
