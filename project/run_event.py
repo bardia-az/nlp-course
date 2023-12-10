@@ -396,6 +396,7 @@ def main():
 
     config = BertConfig.from_pretrained(args.model_type)
     config.num_labels = 12
+    config.max_seq_length = args.max_seq_length
     model = MODEL_CLASS.from_pretrained(args.model_type, config=config)
 
     crf_transitions = ['crf.transitions']

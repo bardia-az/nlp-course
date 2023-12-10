@@ -14,7 +14,7 @@ from transformers import BertForSequenceClassification, BertConfig, BertTokenize
 from transformers.optimization import get_linear_schedule_with_warmup
 
 from utils.data import StockDataset, load_and_cache_benchmark_dataset, load_and_cache_dataset, load_and_cache_predict_dataset, NewsDataset
-from utils.model import StockBertForSequenceClassification
+from utils.model import StockBertForSequenceClassification, BertForBilevelClassification
 
 
 
@@ -35,13 +35,50 @@ def set_seed(seed=24):
     torch.backends.cudnn.benchmark = False
 
 
+index2event = {
+    '0': 'Acquisitions',
+    '1': 'Clinical Trials',
+    '2': 'Dividend Cut',
+    '3': 'Dividend Increase',
+    '4': 'Guidance Change',
+    '5': 'New Contract',
+    '6': 'Regular Dividend',
+    '7': 'Reverse Stock Split',
+    '8': 'Special Dividend',
+    '9': 'Stock Repurchase',
+    '10': 'Stock Split',
+    '11': 'NoEvent',
+}
+
+event2index = {v: k for k, v in index2event.items()}
+NUM_EVENTS = len(event2index) - 1
+NOEVENT_ID = int(event2index['NoEvent'])
+IS_POSITIVE = {
+    'Acquisitions': True,
+    'Clinical Trials': True,
+    'Dividend Cut': False,
+    'Dividend Increase': True,
+    'Guidance Change': True,
+    'New Contract': True,
+    'Regular Dividend': True,
+    'Reverse Stock Split': False,
+    'Special Dividend': True,
+    'Stock Repurchase': True,
+    'Stock Split': True,
+    'Sentiment': True,
+}
+ignore_event_list=('Regular Dividend',)
+seq_threshold = 5
+ignore_list = []
+if len(ignore_event_list) > 0:
+    for event in ignore_event_list:
+        ignore_list.append(int(event2index[event]))
+
+
 def evaluate(test_dataset, model, args):
     logger.info('Start Evaluating')
     test_sampler = SequentialSampler(test_dataset)
     test_dataloader = DataLoader(test_dataset, batch_size=args.per_gpu_batch_size * args.n_gpu, sampler=test_sampler)
-
-    # if not isinstance(model, torch.nn.DataParallel):
-    #     model = torch.nn.DataParallel(model)
 
     model.eval()
     test_iterator = tqdm(test_dataloader, desc="Iteration")
@@ -55,7 +92,38 @@ def evaluate(test_dataset, model, args):
             attention_mask = batch['attention_mask'].to(args.device)
             labels = batch['labels'].to(args.device)
             outputs = model(input_ids, attention_mask=attention_mask)
-            model_preds = outputs[0].argmax(dim=1)
+            if isinstance(model, StockBertForSequenceClassification):
+                model_preds = outputs[0].argmax(dim=1)
+            elif isinstance(model, BertForBilevelClassification):
+                ner_preds = outputs[0]
+                ner_preds = torch.argmax(ner_preds, dim=2)
+                ner_preds = ner_preds.cpu().numpy()
+                ner_preds = ner_preds[:, 1:]
+                seq_preds = outputs[1].cpu().numpy()
+                model_preds = torch.zeros([seq_preds.shape[0]], dtype=torch.uint8).to(args.device)
+                for index, pred in enumerate(ner_preds):
+                    pred[pred == -100] = NOEVENT_ID
+                    tags = set(pred)
+                    seq_tags = set(list(np.where(seq_preds[index] > seq_threshold)[0]))
+                    tags = tags.union(seq_tags)
+
+                    if len(tags) == 1:
+                        model_preds[index] = 1      # neutral
+                        continue
+
+                    tags.remove(NOEVENT_ID)
+
+                    model_pred = 1
+                    for tag in list(tags):
+                        tag = int(tag)
+                        if tag in ignore_list:
+                            model_pred = 1      # neutral
+                        elif IS_POSITIVE[index2event[str(tag)]] and model_pred!=2:
+                            model_pred = 0      # upward
+                        elif not IS_POSITIVE[index2event[str(tag)]] and model_pred!=0:
+                            model_pred = 2      # downward
+                    model_preds[index] = model_pred  
+            
             equal_mask = model_preds == labels
             correct += torch.count_nonzero(equal_mask)
 
@@ -167,7 +235,8 @@ def main():
     config.num_labels = args.num_labels
     config.max_seq_length = args.max_seq_length
     config.stock_labels = 3
-    model = StockBertForSequenceClassification.from_pretrained(args.model_type, config=config)
+    model = StockBertForSequenceClassification.from_pretrained(args.model_type, config=config)    # uncomment for our method evaluation
+    # model = BertForBilevelClassification.from_pretrained(args.model_type, config=config)          # uncomment for baseline evaluation
     model.to(args.device)
 
     # handle predict
