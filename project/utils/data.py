@@ -188,8 +188,8 @@ def load_dataset_from_json(path, MAX_LEN):
                 texts.append(text)
                 info = {'start_price': item['labels']['start_price_open'],
                         'end_price': item['labels']['end_price_3day'],
-                        # 'highest_price': item['labels']['highest_price_3day'],
-                        # 'lowest_price': item['labels']['lowest_price_3day'],
+                        'highest_price': item['labels']['highest_price_3day'],
+                        'lowest_price': item['labels']['lowest_price_3day'],
                 }
                 infos.append(info)
     
@@ -211,14 +211,30 @@ def get_label(info, thresh=3.0):
             label = 1
         labels.append(label)
     return labels
+
+def get_label_regression(info):
+    labels = []
+    for item in info:
+        label = (item['end_price'] - item['start_price']) / item['start_price'] if item['start_price']!=0 else 0
+
+        # price_diff_pos = (item['highest_price'] - item['start_price']) / item['start_price']
+        # price_diff_neg = (item['lowest_price'] - item['start_price']) / item['start_price']
+        # if abs(price_diff_pos) > abs(price_diff_neg):
+        #     label = price_diff_pos
+        # elif abs(price_diff_pos) < abs(price_diff_neg):
+        #     label = price_diff_neg
+        # else:
+        #     label = 0
+        labels.append(label)
+    return labels
     
 
-def load_and_cache_benchmark_dataset(DATA_PATH, BERT_MODEL='bert-base-uncased', MAX_LEN=512, random_seed=24):
+def load_and_cache_benchmark_dataset(cache_file, DATA_PATH, BERT_MODEL='bert-base-uncased', MAX_LEN=512, random_seed=24, regression=False):
     # tokenization
     tokenizer = BertTokenizerFast.from_pretrained(BERT_MODEL)
 
     text, info = load_dataset_from_json(DATA_PATH, MAX_LEN)
-    labels = get_label(info)
+    labels = get_label_regression(info) if regression else get_label(info)
     train_text, val_text, train_labels, val_labels = train_test_split(text, labels, test_size=0.15, random_state=random_seed)
 
     train_encodings = tokenizer(train_text, padding=True, truncation=True, max_length=MAX_LEN)
@@ -226,7 +242,7 @@ def load_and_cache_benchmark_dataset(DATA_PATH, BERT_MODEL='bert-base-uncased', 
 
     data_to_save = (
     train_encodings, train_labels, val_encodings, val_labels)
-    cache_file = os.path.join(os.path.dirname(DATA_PATH), 'cached_train_test_{}'.format(MAX_LEN))
+    # cache_file = os.path.join(os.path.dirname(DATA_PATH), 'cached_train_test_{}'.format(MAX_LEN))
     with open(cache_file, 'wb') as f:
         pickle.dump(data_to_save, f)
     return
@@ -239,7 +255,9 @@ class StockDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
-        item['labels'] = torch.tensor(self.labels[idx])
+        item['labels'] = torch.tensor(self.labels[idx], dtype=torch.float)
+        # if item['labels'].dtype != torch.float16:
+        #     print("error")
         return item
 
     def __len__(self):
