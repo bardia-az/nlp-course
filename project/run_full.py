@@ -10,11 +10,11 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from sklearn.metrics import f1_score, precision_recall_fscore_support, classification_report
 
-from transformers import BertForSequenceClassification, BertConfig, BertTokenizerFast, AdamW
+from transformers import BertConfig, BertTokenizerFast, AdamW
 from transformers.optimization import get_linear_schedule_with_warmup
 
 from utils.data import StockDataset, load_and_cache_benchmark_dataset, load_and_cache_dataset, load_and_cache_predict_dataset, NewsDataset
-from utils.model import BertForSequenceRegression, StockBertForSequenceClassification, BertForBilevelClassification
+from utils.model import BertForSimpleSequenceClassification, BertForSequenceRegression, StockBertForSequenceClassification, BertForBilevelClassification
 
 
 
@@ -92,14 +92,14 @@ def evaluate(test_dataset, model, args):
 
     with torch.no_grad():
         # for batch in test_iterator:
-        for batch in test_iterator:
+        for i, batch in enumerate(test_iterator):
             input_ids = batch['input_ids'].to(args.device)
             attention_mask = batch['attention_mask'].to(args.device)
             labels = batch['labels'].to(args.device)
             outputs = model(input_ids, attention_mask=attention_mask)
-            if isinstance(model, StockBertForSequenceClassification):
+            if args.TASK=='bi-level_classification' or args.TASK=='classification':
                 model_preds = outputs[0].argmax(dim=1)
-            elif isinstance(model, BertForSequenceRegression):
+            elif args.TASK=='regression':
                 model_values = outputs[0]
                 # model_preds_2class = torch.sign(model_values) + 1
                 model_preds_2class = torch.ge(model_values, 0).int()
@@ -121,7 +121,7 @@ def evaluate(test_dataset, model, args):
                 # all_label_values = torch.cat([all_label_values, label_values.cpu().type_as(all_label_values)], dim=0)
                 MSE_val = nn.functional.mse_loss(model_values.view(-1), label_values.view(-1))
                 all_MSEs.append(MSE_val.item())
-            elif isinstance(model, BertForBilevelClassification):
+            elif args.TASK=='baseline':
                 ner_preds = outputs[0]
                 ner_preds = torch.argmax(ner_preds, dim=2)
                 ner_preds = ner_preds.cpu().numpy()
@@ -190,7 +190,7 @@ def main():
         default="regression",
         type=str,
         required=True,
-        help="choose from ['regression', 'classification', 'baseline']",
+        help="choose from ['regression', 'bi-level_classification', 'classification', 'baseline']",
     )
     parser.add_argument(
         "--data_dir",
@@ -281,9 +281,12 @@ def main():
     elif args.TASK == "baseline":
         config.num_labels = args.num_labels
         model = BertForBilevelClassification.from_pretrained(args.model_type, config=config)
-    else:
+    elif args.TASK == "bi-level_classification":
         config.stock_labels = 3
         model = StockBertForSequenceClassification.from_pretrained(args.model_type, config=config)
+    else:
+        config.num_labels = 3
+        model = BertForSimpleSequenceClassification.from_pretrained(args.model_type, config=config)
     
     model.to(args.device)
 
