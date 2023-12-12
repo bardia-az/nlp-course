@@ -1,156 +1,171 @@
-# TradeTheEvent
+# Stock Market Prediction using Textual Data
 
-This repository contains
-
-1. Official implementation of the following paper:
-
-Zhihan Zhou, Liqian Ma, Han Liu. [Trade the Event: Corporate Events Detection for News-Based Event-Driven Trading](https://aclanthology.org/2021.findings-acl.186.pdf). In Findings of ACL 2021.
-
-2. The EDT dataset for corporate event detection and news-based stock prediction benchmark.
-3. Tools for scraping all the news articles from [Reuters](https://www.reuters.com/) back to 2017 and interactively analyze any online news articles (Including event detection and sentiment analysis).
-
-
-
-If you use any of them in your work, please [cite](#reference) our paper.
-
-
-
-## Dataset
-
-We release the EDT dataset for corporate event detection and news-based stock prediction benchmark. Please refer to the `data/` folder for access and detailed information about this dataset. The dataset can be found [here](https://drive.google.com/drive/folders/1xKjd9hzA8UTn2DXVIYYnX5TngNAMom19?usp=sharing).
-
-
-
-## Tool
-
-We shall the tool for scraping news article and interactively analyze news articles on how it may influence the stock market. Please refer to the `tool/` folder for access and detailed information about our tool.
-
+This repository is the implementation of the final NLP course project of the group savagetokenizer.
 
 
 ## Environment
 
-We recommand to use a Python virtual environment with Python >= 3.6. The requirements can be installed with:
+We recommand to use a Python virtual environment with Python = 3.8.7. The requirements can be installed with:
 
 ```
-git clone https://github.com/Zhihan1996/TradeTheEvent
-cd TradeTheEvent
+git clone https://csil-git1.cs.sfu.ca/baa27/nlpclass-1237-g-savagetokenizer.git
+cd nlpclass-1237-g-savagetokenizer/project
 pip install -r requirements.txt
 ```
 
 
 
-
-
-
-
-## Official Implementation
+## Check the accuracy of the models without the weights
 
 ### 0. Download Data
 
-Please download data from [here](https://drive.google.com/drive/folders/1xKjd9hzA8UTn2DXVIYYnX5TngNAMom19?usp=sharing) and put all the three data folder into a folder. Suppose the data dir is `/home/user/data`, set the environment variable as:
+Please download and extract the contents of `output.zip` file into a folder named `models` in the `project` directory.
+
+
+### 1. Run `check.py` with the appropriate arguments
+
+First `cd` to the project directory:
 
 ```
-export DIR_TO_EDT_DATASET=/home/user/data
+cd project/
+```
+
+* For *Event Prediction* model run the following command:
+```
+python3 check.py --TASK classification --data_folder models/bilevel/results
+```
+
+* For *Trend Prediction* model run the following command:
+```
+python3 check.py --TASK classification --data_folder models/stock_pred/results
+```
+
+* For *Simple Trend Prediction* model run the following command:
+```
+python3 check.py --TASK classification --data_folder models/simple_cls/results
+```
+
+* For *Price Prediction* model run the following command:
+```
+python3 check.py --TASK regression --data_folder models/regression/results --threshold 0.03
 ```
 
 
 
+## Training the model
 
+### 0. Download Data
 
-### 1. Domain Adaptation
+Pleae download the three datasets from [here](https://drive.google.com/drive/folders/1xKjd9hzA8UTn2DXVIYYnX5TngNAMom19?usp=sharing) and put them in the `data/` folder.
+
+Now, you have three folders with the names of `Domain_adaptation/`, `Event_detection/`, and `Trading_benchmark/` in the `data/` folder. The first two have `train.txt` and `dev.txt` and the third has `evaluate_news.json` file.
+
+### Phase 1: Domain Adaptation
+
+To fine-tune a base BERT model on the stock market data run the following command:
 
 ```
-export TRAIN_FILE=DIR_TO_EDT_DATASET/Domain_adaptation/train.txt
-export TEST_FILE=DIR_TO_EDT_DATASET/Domain_adaptation/dev.txt
-export ADA_MODEL_DIR=models/bert_bc_adapted
-
-python run_domain_adapt.py \
-    --output_dir=ADA_MODEL_DIR \
+python3 run_domain_adapt.py \
+    --output_dir=models/bert_bc_adapted \
     --model_type=bert \
     --model_name_or_path=bert-base-cased \
     --do_train \
-    --train_data_file=$TRAIN_FILE \
+    --train_data_file=data/Domain_adaptation/train.txt \
     --do_eval \
-    --eval_data_file=$TEST_FILE \
+    --eval_data_file=data/Domain_adaptation/dev.txt \
     --mlm \
-    --per_device_train_batch_size 4 \
+    --per_device_train_batch_size 8 \
     --gradient_accumulation_steps 2 \
     --warmup_steps 500 \
     --learning_rate 3e-5 \
     --evaluate_during_training \
     --eval_steps 500 \
     --num_train_epochs 20 \
-    --max_steps 10000
+    --max_steps 10000 \
+    --logging_first_step
 ```
 
+### Phase 2: Corporate Event Detection
 
-
-
-
-### 2. Train the Model for Event Detection
+To further fine-tune the obtained BERT model to predict the corporate events, run the following command:
 
 ```
-export ADA_MODEL_DIR=models/bert_bc_adapted
-export DATA_DIR=DIR_TO_EDT_DATASET/Event_detection
-export OUTPUT_DIR=models/bilevel
-
-python run_event.py \
-    --TASK bilevel \
-    --data_dir DATA_DIR \
+python3 run_event.py \
+    --TASK seq \
+    --data_dir data/Event_detection \
     --epoch 5 \
-    --model_type ADA_MODEL_DIR \
-    --output_dir OUTPUT_DIR \
+    --model_type models/bert_bc_adapted \
+    --output_dir models/seq_cls \
+    --bert_lr 5e-5  \
+    --per_gpu_batch_size 8 \
+    --gradient_accumulation_steps 1 \
+    --max_seq_length 512    # for the baseline model "Event Prediction", set this argument to 256
+```
+
+### Phase 3: Stock Market Prediction
+
+* To train the *Event Prediction* (the method of [1]) model run the following command:
+
+```
+python3 run_event.py \
+    --TASK bilevel \
+    --data_dir data/Event_detection \
+    --epoch 5 \
+    --model_type models/bert_bc_adapted \
+    --output_dir models/bilevel \
     --bert_lr 5e-5  \
     --per_gpu_batch_size 8 \
     --gradient_accumulation_steps 1 \
     --max_seq_length 256 
 ```
 
-
-
-### 3. Detect Events on the Evaluation News
+* To train the *Trend Prediction* model run the following command:
 
 ```
-export OUTPUT_DIR=models/bilevel
-export PRED_DIR=preds/bilevel
-export DATA_DIR=DIR_TO_EDT_DATASET/Trading_benchmark/evaluate_news.json
+python3 run_event.py \
+    --TASK bi-level_classification \
+    --data_dir data/Trading_benchmark/evaluate_news.json \
+    --epoch 5 \
+    --model_type models/seq_cls \
+    --output_dir models/stock_pred \
+    --bert_lr 5e-5  \
+    --per_gpu_batch_size 10 \
+    --gradient_accumulation_steps 1 \
+    --max_seq_length 512 
+```
 
+* To train the *Simple Trend Prediction* model run the following command:
 
-python run_event.py \
-    --TASK bilevel \
-    --output_dir OUTPUT_DIR \
-    --per_gpu_batch_size 64 \
-    --predict_dir PRED_DIR \
-    --do_predict \
-    --max_seq_length 256 \
-    --data_dir DATA_DIR
+```
+python3 run_event.py \
+    --TASK classification \
+    --data_dir data/Trading_benchmark/evaluate_news.json \
+    --epoch 5 \
+    --model_type models/seq_cls \
+    --output_dir models/simple_cls \
+    --bert_lr 5e-5  \
+    --per_gpu_batch_size 10 \
+    --gradient_accumulation_steps 1 \
+    --max_seq_length 512 
+```
 
+* To train the *Price Prediction* model run the following command:
+
+```
+python3 run_event.py \
+    --TASK regression \
+    --data_dir data/Trading_benchmark/evaluate_news.json \
+    --epoch 5 \
+    --model_type models/seq_cls \
+    --output_dir models/regression \
+    --bert_lr 5e-5  \
+    --per_gpu_batch_size 10 \
+    --gradient_accumulation_steps 1 \
+    --max_seq_length 512 
 ```
 
 
-
-
-
-### 4. Backtest
-
-```
-export PRED_DIR=preds/bilevel
-export DATA_DIR=DIR_TO_EDT_DATASET/Trading_benchmark/evaluate_news.json
-export RESULTS_DIR=results/
-
-python run_backtest.py \
-    --evaluate_news_dir DATA_DIR \
-    --pred_dir PRED_DIR \
-    --save_dir RESULTS_DIR \
-    --model_type bilevel \
-    --seq_threshold 5 \
-    --stoploss 0.2 \
-    --buy_pub_same_time
-```
-
-The final backtest results will appear at the `RESULTS_DIR`.
-
-
+**Note:** you can run only the evaluation without training on the models by passing the argument `--do_predict` to the previous commands. This evaluation shows the *RPS* values in addition to the *Accuracy* values.
 
 
 
@@ -158,21 +173,6 @@ The final backtest results will appear at the `RESULTS_DIR`.
 
 ## Reference
 
-If you use the codes, tool, or the dataset, please kindly cite our paper.
+[1] Zhou, Zhihan, Liqian Ma, and Han Liu. "Trade the event: Corporate events detection for news-based event-driven trading." arXiv preprint arXiv:2105.12825 (2021).
 
-```
-@inproceedings{zhou-etal-2021-trade,
-    title = "Trade the Event: Corporate Events Detection for News-Based Event-Driven Trading",
-    author = "Zhou, Zhihan  and
-      Ma, Liqian  and
-      Liu, Han",
-    booktitle = "Findings of the Association for Computational Linguistics: ACL-IJCNLP 2021",
-    month = aug,
-    year = "2021",
-    address = "Online",
-    publisher = "Association for Computational Linguistics",
-    url = "https://aclanthology.org/2021.findings-acl.186",
-    doi = "10.18653/v1/2021.findings-acl.186",
-    pages = "2114--2124",
-}
-```
+[2] https://github.com/Zhihan1996/TradeTheEvent

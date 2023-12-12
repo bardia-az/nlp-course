@@ -51,8 +51,8 @@ def main():
         "--TASK",
         default="regression",
         type=str,
-        # required=True,
-        help="choose from ['regression', 'bi-level_classification', 'classification', 'baseline']",
+        required=True,
+        help="choose from ['regression', 'classification']",
     )
     parser.add_argument(
         "--data_folder",
