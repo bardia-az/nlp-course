@@ -4,3 +4,6 @@ transformers==3.1.0
 nltk
 python-dateutil
 Yahoo-ticker-downloader
+notebook
+jupyter_contrib_nbextensions
+jupyter_nbextensions_configurator

@@ -75,6 +75,14 @@ if len(ignore_event_list) > 0:
         ignore_list.append(int(event2index[event]))
 
 
+def RPS(p, y, device):
+    p_cum_sum = torch.cumsum(p, dim=1)
+    y_cum_sum = torch.zeros([p.shape[0], p.shape[1]], device=device)
+    y_cum_sum[range(p.shape[0]), y.long()] = 1
+    squared_diff = (p_cum_sum - y_cum_sum) ** 2
+    return torch.mean(squared_diff)
+
+
 def evaluate(test_dataset, model, args):
     logger.info('Start Evaluating')
     test_sampler = SequentialSampler(test_dataset)
@@ -86,29 +94,34 @@ def evaluate(test_dataset, model, args):
     correct_2class = 0
     all_model_preds = torch.zeros([0], dtype=torch.uint8)
     all_labels = torch.zeros([0], dtype=torch.uint8)
-    # all_model_values = torch.zeros([0])
-    # all_label_values = torch.zeros([0])
+    all_model_values = torch.zeros([0])
+    all_label_values = torch.zeros([0])
     all_MSEs = []
+    ce_loss = 0
+    rps = 0
 
     with torch.no_grad():
-        # for batch in test_iterator:
-        for i, batch in enumerate(test_iterator):
+        for batch in test_iterator:
             input_ids = batch['input_ids'].to(args.device)
             attention_mask = batch['attention_mask'].to(args.device)
             labels = batch['labels'].to(args.device)
             outputs = model(input_ids, attention_mask=attention_mask)
+
             if args.TASK=='bi-level_classification' or args.TASK=='classification':
                 model_preds = outputs[0].argmax(dim=1)
+                loss_fct = nn.CrossEntropyLoss()
+                probs = nn.functional.softmax(outputs[0], dim=1) if args.TASK=='classification' else outputs[0]
+                ce_loss += loss_fct(probs, labels)
+                rps += RPS(probs, labels, args.device)
+
             elif args.TASK=='regression':
                 model_values = outputs[0]
-                # model_preds_2class = torch.sign(model_values) + 1
                 model_preds_2class = torch.ge(model_values, 0).int()
                 label_values = labels
-                # labels_2class = torch.sign(label_values) + 1
+                all_model_values = torch.cat([all_model_values, model_values.cpu().type_as(all_model_values)], dim=0)
+                all_label_values = torch.cat([all_label_values, labels.cpu().type_as(all_label_values)], dim=0)
                 labels_2class = torch.ge(label_values, 0).int()
                 correct_2class += torch.count_nonzero(model_preds_2class.view(-1) == labels_2class.view(-1))
-                # all_model_preds_2class = torch.cat([all_model_preds_2class, model_preds_2class.cpu().type_as(all_model_preds_2class)], dim=0)
-                # all_labels_2class = torch.cat([all_labels_2class, labels_2class.cpu().type_as(all_labels_2class)], dim=0)
                 model_preds = model_preds_2class
                 labels = labels_2class
                 model_preds[model_values > args.threshold] = 0
@@ -117,8 +130,9 @@ def evaluate(test_dataset, model, args):
                 labels[label_values > args.threshold] = 0
                 labels[label_values < -args.threshold] = 2
                 labels[(label_values >= -args.threshold) & (label_values <= args.threshold)] = 1
-                # all_model_values = torch.cat([all_model_values, model_values.cpu().type_as(all_model_values)], dim=0)
-                # all_label_values = torch.cat([all_label_values, label_values.cpu().type_as(all_label_values)], dim=0)
+                probs = torch.zeros([model_preds.shape[0], 3], device=args.device)
+                probs[range(probs.shape[0]), model_preds[:,0].long()] = 1
+                rps += RPS(probs, labels, args.device)
                 MSE_val = nn.functional.mse_loss(model_values.view(-1), label_values.view(-1))
                 all_MSEs.append(MSE_val.item())
             elif args.TASK=='baseline':
@@ -133,13 +147,10 @@ def evaluate(test_dataset, model, args):
                     tags = set(pred)
                     seq_tags = set(list(np.where(seq_preds[index] > seq_threshold)[0]))
                     tags = tags.union(seq_tags)
-
                     if len(tags) == 1:
                         model_preds[index] = 1      # neutral
                         continue
-
                     tags.remove(NOEVENT_ID)
-
                     model_pred = 1
                     for tag in list(tags):
                         tag = int(tag)
@@ -150,6 +161,9 @@ def evaluate(test_dataset, model, args):
                         elif not IS_POSITIVE[index2event[str(tag)]] and model_pred!=0:
                             model_pred = 2      # downward
                     model_preds[index] = model_pred  
+                probs = torch.zeros([model_preds.shape[0], 3], device=args.device)
+                probs[range(probs.shape[0]), model_preds.long()] = 1
+                rps += RPS(probs, labels, args.device)
             
             equal_mask = model_preds.view(-1) == labels.view(-1)
             correct += torch.count_nonzero(equal_mask)
@@ -161,7 +175,12 @@ def evaluate(test_dataset, model, args):
     if not os.path.exists(source_path):
         os.makedirs(source_path)
 
-    np.save(os.path.join(source_path, 'model_preds.npy'), all_model_preds)
+    if args.TASK=='regression':
+        np.save(os.path.join(source_path, 'model_preds.npy'), all_model_values)
+        np.save(os.path.join(source_path, 'labels.npy'), all_label_values)
+    else:
+        np.save(os.path.join(source_path, 'model_preds.npy'), all_model_preds)
+        np.save(os.path.join(source_path, 'labels.npy'), all_labels)
 
     logger.info('\n')
 
@@ -174,10 +193,12 @@ def evaluate(test_dataset, model, args):
     logger.info(f'Micro\t Precision={100.*micro_precision:.2f} Recall={100.*micro_recall:.2f} F1={100.*micro_f1:.2f}')
     logger.info(f'Macro\t Precision={100.*macro_precision:.2f} Recall={100.*macro_recall:.2f} F1={100.*macro_f1:.2f}')
     logger.info(f'Weighted\t Precision={100.*weigh_precision:.2f} Recall={100.*weigh_recall:.2f} F1={100.*weigh_f1:.2f}')
+    logger.info(f'Cross_Entropy loss: {ce_loss / len(test_iterator)}')
+    logger.info(f'RPS: {rps / len(test_iterator)}')
 
     if args.TASK == "regression":
         logger.info(f'MSE={sum(all_MSEs)/len(all_MSEs)}')
-        logger.info('Accuracy_binary: {}'.format(100. * correct_2class / len(all_labels)))
+        logger.info(f'Accuracy_binary: {100. * correct_2class / len(all_labels)}')
 
 
 
